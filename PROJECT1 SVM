@@ -1,0 +1,71 @@
+import time
+from datasets import load_dataset
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.svm import LinearSVC
+from sklearn.metrics import accuracy_score, classification_report
+
+def train_svm_on_ag_news():
+    print("Loading AG News dataset from Hugging Face...")
+    # 1. Load the dataset
+    # 'fancyzhx/ag_news' is the original AG News dataset.
+    dataset = load_dataset("fancyzhx/ag_news")
+
+    # 2. Split the dataset into training and test sets
+    # Hugging Face datasets usually come split into 'train' and 'test'.
+    # Let's convert the data into a format (list) that scikit-learn understands.
+    X_train = dataset['train']['text']
+    y_train = dataset['train']['label']
+    
+    X_test = dataset['test']['text']
+    y_test = dataset['test']['label']
+
+    print(f"Training data size: {len(X_train)}")
+    print(f"Test data size: {len(X_test)}")
+
+    print("\nVectorizing text data with TF-IDF...")
+    # 3. Vectorize Text Data (TF-IDF)
+    # Classic models like SVM cannot work with raw text; they need numerical vectors.
+    # TF-IDF is one of the most successful methods for text classification.
+    # max_features=20000 -> Use the 20,000 most frequently used words as features.
+    # stop_words='english' -> Ignore common English words like 'the', 'is', 'a'.
+    vectorizer = TfidfVectorizer(stop_words='english', max_features=20000)
+    
+    start_time = time.time()
+    X_train_tfidf = vectorizer.fit_transform(X_train)
+    X_test_tfidf = vectorizer.transform(X_test)
+    vector_time = time.time() - start_time
+    print(f"Vectorization took {vector_time:.2f} seconds.")
+    print(f"Number of features (words) created: {len(vectorizer.get_feature_names_out())}")
+
+
+    print("\nTraining SVM (LinearSVC) model...")
+    # 4. Train the SVM Model
+    # LinearSVC is much faster and more scalable for high-dimensional data
+    # like text classification than the standard SVC(kernel='linear').
+    # C=0.5 -> Regularization parameter.
+    model = LinearSVC(C=0.5, random_state=42, max_iter=2000)
+    
+    start_time = time.time()
+    model.fit(X_train_tfidf, y_train)
+    train_time = time.time() - start_time
+    print(f"Model training took {train_time:.2f} seconds.")
+
+    print("\nEvaluating the model on test data...")
+    # 5. Evaluate the Model
+    y_pred = model.predict(X_test_tfidf)
+    
+    accuracy = accuracy_score(y_test, y_pred)
+    
+    # Get class names (AG News consists of 4 categories)
+    # 0: World, 1: Sports, 2: Business, 3: Sci/Tech
+    class_names = dataset['train'].features['label'].names
+    report = classification_report(y_test, y_pred, target_names=class_names)
+
+    # 6. Print the Results
+    print("\n--- EVALUATION RESULTS ---")
+    print(f"Model Accuracy: {accuracy * 100:.2f}%")
+    print("\nClassification Report:")
+    print(report)
+
+if __name__ == "__main__":
+    train_svm_on_ag_news()
