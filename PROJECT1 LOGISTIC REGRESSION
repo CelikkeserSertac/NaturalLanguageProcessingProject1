@@ -1,0 +1,99 @@
+import warnings
+from datasets import load_dataset
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.pipeline import Pipeline
+
+# Suppress warnings related to model convergence
+warnings.filterwarnings('ignore')
+
+def train_ag_news_model():
+    """
+    Loads the AG News dataset, trains a TF-IDF + Logistic Regression
+    model, and evaluates it.
+    """
+    
+    # --- 1. Load the Dataset ---
+    print("Loading dataset from Hugging Face...")
+    try:
+        # Load the fancyzhx/ag_news dataset
+        dataset = load_dataset("fancyzhx/ag_news")
+    except Exception as e:
+        print(f"Error: Could not load dataset. {e}")
+        print("Trying 'ag_news' as an alternative...")
+        try:
+            # Sometimes the main 'ag_news' configuration works more reliably
+            dataset = load_dataset("ag_news")
+        except Exception as e2:
+            print(f"Alternative loading also failed: {e2}")
+            return
+
+    # Check the dataset structure
+    # print(dataset)
+    
+    # Separate training and test data
+    # (dataset['train'] is a Dataset object, providing access to columns)
+    train_texts = dataset['train']['text']
+    train_labels = dataset['train']['label']
+    
+    test_texts = dataset['test']['text']
+    test_labels = dataset['test']['label']
+    
+    print(f"Number of training samples: {len(train_texts)}")
+    print(f"Number of test samples: {len(test_texts)}")
+
+    # Get label names directly from the dataset
+    # (0: 'World', 1: 'Sports', 2: 'Business', 3: 'Sci/Tech')
+    label_names = dataset['train'].features['label'].names
+    print(f"Labels: {list(enumerate(label_names))}")
+
+    # --- 2. Create the Model Pipeline ---
+    # Creating a 'pipeline' is the cleanest approach.
+    # This pipeline consists of two steps:
+    # 1. 'tfidf': Converts texts into TF-IDF vectors.
+    # 2. 'model': Applies the Logistic Regression model.
+    
+    print("\nCreating model pipeline...")
+    pipeline = Pipeline([
+        ('tfidf', TfidfVectorizer(stop_words='english', max_features=20000)),
+        ('model', LogisticRegression(max_iter=1000, random_state=42))
+    ])
+
+    # --- 3. Train the Model ---
+    print("Training the model...")
+    # Feed the pipeline with training data
+    pipeline.fit(train_texts, train_labels)
+    print("Model training complete.")
+
+    # --- 4. Evaluate the Model ---
+    print("\nEvaluating the model on test data...")
+    # Make predictions on the test data
+    predictions = pipeline.predict(test_texts)
+    
+    # Calculate the accuracy score
+    accuracy = accuracy_score(test_labels, predictions)
+    print(f"\nModel Accuracy: {accuracy * 100:.2f}%")
+    
+    # Print the classification report (precision, recall, f1-score)
+    print("\nClassification Report:")
+    report = classification_report(test_labels, predictions, target_names=label_names)
+    print(report)
+
+    # --- 5. Example Prediction ---
+    print("\n--- Example Prediction ---")
+    sample_news = [
+        "The tech company announced a new quantum computer today.", # Sci/Tech (3)
+        "The stock market soared after the government's latest announcement.", # Business (2)
+        "The final match of the championship ended in a draw after extra time." # Sports (1)
+    ]
+    
+    sample_preds = pipeline.predict(sample_news)
+    sample_pred_names = [label_names[p] for p in sample_preds]
+    
+    for text, label in zip(sample_news, sample_pred_names):
+        print(f"News: \"{text[:50]}...\" -> Prediction: {label}")
+
+# Run the script
+if __name__ == "__main__":
+    train_ag_news_model()
