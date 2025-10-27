@@ -1,0 +1,175 @@
+# Step 1: Loading the Hugging Face Dataset
+
+# 1. Installing the Hugging Face 'datasets' library
+print("Installing the Hugging Face 'datasets' library...")
+!pip install datasets -q # '-q' (quiet) ensures silent installation
+
+print("'datasets' library installed.")
+print("-" * 30)
+
+from datasets import load_dataset
+import pandas as pd
+
+# 2. Specify the dataset ID (identifier) here
+# The ID from the link you provided: "fancyzhx/ag_news"
+hf_dataset_name = "fancyzhx/ag_news"
+
+try:
+    print(f"Downloading the '{hf_dataset_name}' dataset from Hugging Face...")
+
+    # Download the dataset
+    dataset = load_dataset(hf_dataset_name)
+
+    print("Dataset downloaded.")
+
+    # This dataset has 'train' and 'test' splits.
+    # We will take the 'train' split and convert it to pandas.
+    # (We can use the 'test' split later to evaluate our model,
+    # but for now, let's start with 'train' and split it ourselves)
+    df = dataset['train'].to_pandas()
+
+    print("Dataset converted to 'pandas.DataFrame' format.")
+    print("-" * 30)
+
+    # 3. Inspect the Data
+    print("First 5 rows of the data (head):")
+    print(df.head())
+
+    print("\n" + "-" * 30)
+    print("General info about the data (info):")
+    df.info()
+
+except Exception as e:
+    print(f"\n\nERROR: An issue occurred while loading the dataset: {e}")
+    print(f"Please ensure the dataset name ('{hf_dataset_name}') is correct.")
+    print("You can also check your internet connection.")
+
+# Step 2: Data Exploration and Splitting into Train/Test Sets
+
+# Import the required function from the sklearn library
+from sklearn.model_selection import train_test_split
+
+# 1. Check the Label Distribution
+# Let's check the count of each category in the 'label' column
+# This will show us if our dataset is balanced
+print("Label (Category) Distribution:")
+print(df['label'].value_counts())
+print("\n" + "-" * 30 + "\n")
+
+# 2. Define Features (X) and Target (y)
+X = df['text']
+y = df['label']
+
+# 3. Split the Data into Training and Test Sets
+# 80% of the data will be for training, 20% for testing.
+# The 'stratify=y' parameter ensures the category ratios are preserved.
+X_train, X_test, y_train, y_test = train_test_split(X, y,
+                                                    test_size=0.2,
+                                                    random_state=42,
+                                                    stratify=y)
+
+# Check the results of the split
+print("Data Split Results:")
+print(f"Total Data Count: {len(df)}")
+print(f"Training Set (X_train) Size: {len(X_train)}")
+print(f"Test Set (X_test) Size: {len(X_test)}")
+
+# Step 3: Vectorizing Text Data (TF-IDF Vectorization)
+
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+# 1. Initialize the TF-IDF Vectorizer
+# Since this dataset is 'raw', we add stop_words='english'
+# Based on our previous experience, we are adding n-grams
+tfidf_vectorizer = TfidfVectorizer(stop_words='english',
+                                     ngram_range=(1, 2),
+                                     max_features=20000)
+
+print("TF-IDF Vectorizer (with n-grams) created.")
+print("Starting 'fit' and 'transform' on the training data...")
+print("(This operation might take a few seconds for 96,000 rows)")
+
+# 2. Vectorize the Training Data (Fit and Transform)
+# The model's vocabulary should ONLY be learned from the training data
+X_train_tfidf = tfidf_vectorizer.fit_transform(X_train)
+
+print("Training data transformed.")
+print("Starting 'transform' on the test data...")
+
+# 3. Vectorize the Test Data (ONLY Transform)
+# Transform the test data using the vocabulary learned during training
+X_test_tfidf = tfidf_vectorizer.transform(X_test)
+
+print("Test data transformed.")
+print("\n" + "-" * 30 + "\n")
+
+# 4. Check the Dimensions of the Results
+print("Dimensions of the created TF-IDF Matrices:")
+print(f"Training Set (X_train_tfidf) Shape: {X_train_tfidf.shape}")
+print(f"Test Set (X_test_tfidf) Shape: {X_test_tfidf.shape}")
+print(f"Training Labels (y_train) Shape: {y_train.shape}")
+
+# Step 4: Building and Training the Naive Bayes Model
+
+from sklearn.naive_bayes import MultinomialNB
+
+# 1. Initialize the Multinomial Naive Bayes model
+# Since our dataset is perfectly balanced, no extra parameters are needed.
+model = MultinomialNB()
+
+print("Multinomial Naive Bayes model created.")
+print("Model training is starting (fit)...")
+
+# 2. Train the model with the training data
+# The model will learn the relationship between
+# X_train_tfidf (numerical texts) and y_train (labels).
+model.fit(X_train_tfidf, y_train)
+
+print("Model successfully trained!")
+
+# Step 5: Model Evaluation (Prediction and Reporting)
+
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+print("Starting prediction on test data (predict)...")
+
+# 1. Make predictions on the test set
+# Use the trained model to predict labels for the X_test_tfidf data
+y_pred = model.predict(X_test_tfidf)
+
+print("Prediction process completed.")
+print("\n" + "="*50 + "\n")
+
+# 2. Overall Accuracy
+accuracy = accuracy_score(y_test, y_pred)
+print("Model Performance Report:")
+print(f"Overall Accuracy: {accuracy:.4f} (Meaning {accuracy*100:.2f}% of predictions are correct)")
+print("\n" + "-"*50 + "\n")
+
+# 3. Classification Report
+# ag_news label meanings:
+# 0: World, 1: Sports, 2: Business, 3: Sci/Tech
+target_names = ['0: World', '1: Sports', '2: Business', '3: Sci/Tech']
+
+print("Detailed Classification Report:")
+# Comparing y_test (actual labels) with y_pred (predictions)
+# The target_names parameter adds label names to the report
+print(classification_report(y_test, y_pred, target_names=target_names))
+print("\n" + "-"*50 + "\n")
+
+# 4. Confusion Matrix
+print("Confusion Matrix:")
+print("Rows: Actual Values, Columns: Predicted Values")
+
+cm = confusion_matrix(y_test, y_pred)
+
+# Let's use Seaborn to visualize the matrix more nicely
+plt.figure(figsize=(10, 7))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+            xticklabels=target_names, yticklabels=target_names)
+plt.xlabel('Predicted Label')
+plt.ylabel('Actual Label')
+plt.title('Confusion Matrix')
+plt.show()
