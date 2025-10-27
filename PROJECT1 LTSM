@@ -1,0 +1,133 @@
+import tensorflow as tf
+from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout, Bidirectional
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import TextVectorization
+from datasets import load_dataset
+import numpy as np
+import re
+
+# --- 1. Veri Kümesini Yükleme ---
+print("Veri kümesi yükleniyor...")
+# 'ag_news' veri kümesini Hugging Face'ten yüklüyoruz
+dataset = load_dataset("fancyzhx/ag_news")
+
+# Veri kümesini eğitim ve test olarak ayırıyoruz
+train_data = dataset['train']
+test_data = dataset['test']
+
+# Veriyi daha kolay işlemek için metinleri ve etiketleri ayrı listelere alıyoruz
+X_train_text = [data['text'] for data in train_data]
+y_train = np.array([data['label'] for data in train_data])
+
+X_test_text = [data['text'] for data in test_data]
+y_test = np.array([data['label'] for data in test_data])
+
+print(f"Eğitim verisi sayısı: {len(X_train_text)}")
+print(f"Test verisi sayısı: {len(X_test_text)}")
+print(f"İlk eğitim örneği: {X_train_text[0]}")
+print(f"İlk eğitim etiketi: {y_train[0]}")
+
+# --- 2. Metin Ön İşleme (Vektörleştirme) ---
+
+# Model parametreleri
+vocab_size = 20000  # Kelime dağarcığındaki maksimum kelime sayısı
+max_len = 100      # Her bir haber metni için kullanılacak maksimum kelime sayısı
+
+# TextVectorization katmanı, metni tamsayılara dönüştürür.
+# 'output_sequence_length=max_len' ile tüm metinleri aynı uzunluğa (padding) getirir.
+vectorize_layer = TextVectorization(
+    max_tokens=vocab_size,
+    output_mode='int',
+    output_sequence_length=max_len
+)
+
+print("Kelime dağarcığı (vocabulary) oluşturuluyor...")
+# Kelime dağarcığını sadece eğitim verisi üzerinden oluştur
+vectorize_layer.adapt(X_train_text)
+
+# Metinleri vektörlere dönüştür
+X_train_vec = vectorize_layer(X_train_text)
+X_test_vec = vectorize_layer(X_test_text)
+
+# --- 3. LSTM Modelini Oluşturma ---
+
+embedding_dim = 128  # Her kelime için vektör boyutu
+
+print("LSTM modeli oluşturuluyor...")
+model = Sequential([
+    # Input katmanı (vektörleştirilmiş metni alır)
+    # Kelime dağarcığı boyutunu (vocab_size) ve embedding boyutunu (embedding_dim) belirtir.
+    Embedding(input_dim=vocab_size, 
+              output_dim=embedding_dim, 
+              input_length=max_len),
+    
+    # Bidirectional LSTM katmanı (metni hem baştan sona hem de sondan başa okur)
+    # Bu, genellikle performansı artırır.
+    Bidirectional(LSTM(units=64, return_sequences=True)), # return_sequences=True bir sonraki LSTM katmanına çıktı vermek için
+    Dropout(0.3), # Aşırı öğrenmeyi (overfitting) engellemek için
+    
+    Bidirectional(LSTM(units=32)),
+    Dropout(0.3),
+    
+    # Yoğun bir gizli katman
+    Dense(units=64, activation='relu'),
+    Dropout(0.3),
+    
+    # Çıkış katmanı
+    # AG News veri kümesinde 4 sınıf (label) olduğu için 'units=4'
+    # Sınıflandırma problemi olduğu için 'softmax' aktivasyonu
+    Dense(units=4, activation='softmax')
+])
+
+# Modeli derleme
+model.compile(
+    loss='sparse_categorical_crossentropy', # Etiketler tamsayı olduğu için 'sparse_'
+    optimizer='adam',
+    metrics=['accuracy']
+)
+
+model.summary()
+
+# --- 4. Modeli Eğitme ---
+print("Model eğitiliyor...")
+epochs = 5
+batch_size = 64
+
+history = model.fit(
+    X_train_vec,
+    y_train,
+    epochs=epochs,
+    batch_size=batch_size,
+    validation_data=(X_test_vec, y_test)
+)
+
+# --- 5. Modeli Değerlendirme ---
+print("Model değerlendiriliyor...")
+loss, accuracy = model.evaluate(X_test_vec, y_test)
+print(f"Test Verisi Doğruluğu (Accuracy): {accuracy * 100:.2f}%")
+print(f"Test Verisi Kaybı (Loss): {loss:.4f}")
+
+# --- 6. Yeni Veri ile Tahmin Yapma ---
+print("\n--- Yeni Tahmin Örneği ---")
+sample_news = [
+    "The stock market crashed today after bad economic news.", # Örnek: Business (Etiket 2)
+    "The football team won their final game of the season."   # Örnek: Sports (Etiket 1)
+]
+
+# Metni modelin anlayacağı formata getir
+sample_vec = vectorize_layer(sample_news)
+
+# Tahmin yap
+predictions = model.predict(sample_vec)
+
+# Sınıf isimleri (AG News etiket sırasına göre)
+class_names = ['World', 'Sports', 'Business', 'Sci/Tech'] 
+
+for i, text in enumerate(sample_news):
+    predicted_index = np.argmax(predictions[i])
+    predicted_class = class_names[predicted_index]
+    confidence = np.max(predictions[i]) * 100
+    
+    print(f"\nMetin: '{text}'")
+    print(f"Tahmin Edilen Sınıf: {predicted_class} (Etiket: {predicted_index})")
+    print(f"Güven Oranı: {confidence:.2f}%")
