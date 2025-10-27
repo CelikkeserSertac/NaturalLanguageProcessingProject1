@@ -1,0 +1,110 @@
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, Conv1D, GlobalMaxPooling1D, Dense, Dropout
+from tensorflow.keras.utils import to_categorical
+from datasets import load_dataset
+
+# --- Step 1: Load the Dataset ---
+print("Loading dataset...")
+try:
+    # Trying to load from the specific link provided by the user
+    dataset = load_dataset("fancyzhx/ag_news")
+except Exception as e:
+    print(f"Could not load fancyzhx/ag_news: {e}")
+    print("Trying the standard 'ag_news' dataset...")
+    # As an alternative, load the standard ag_news dataset
+    dataset = load_dataset("ag_news")
+
+# Split the dataset into training and test sets
+# Converting from Hugging Face dataset object to lists
+train_texts = [example['text'] for example in dataset['train']]
+train_labels = [example['label'] for example in dataset['train']]
+
+test_texts = [example['text'] for example in dataset['test']]
+test_labels = [example['label'] for example in dataset['test']]
+
+print(f"Number of training samples: {len(train_texts)}")
+print(f"Number of test samples: {len(test_texts)}")
+
+# --- Step 2: Data Preprocessing (Tokenization and Padding) ---
+
+# Model parameters
+VOCAB_SIZE = 20000  # Vocabulary size (top 20k most frequent words)
+MAX_LEN = 120       # Maximum length of each news text
+EMBEDDING_DIM = 100 # Word embedding vector dimension
+NUM_CLASSES = 4     # Number of classes (4 for AG News)
+
+# Keras Tokenizer
+# Take the top VOCAB_SIZE most frequent words, mark unknowns with <OOV>
+tokenizer = Tokenizer(num_words=VOCAB_SIZE, oov_token="<OOV>")
+tokenizer.fit_on_texts(train_texts)
+
+# Convert texts to integer sequences
+train_sequences = tokenizer.texts_to_sequences(train_texts)
+test_sequences = tokenizer.texts_to_sequences(test_texts)
+
+# Pad sequences to a fixed length of MAX_LEN (padding/truncating)
+train_padded = pad_sequences(train_sequences, maxlen=MAX_LEN, padding='post', truncating='post')
+test_padded = pad_sequences(test_sequences, maxlen=MAX_LEN, padding='post', truncating='post')
+
+print(f"Shape of padded training data: {train_padded.shape}")
+print(f"Shape of padded test data: {test_padded.shape}")
+
+# --- Step 3: Prepare Labels (One-Hot Encoding) ---
+# Convert labels (0, 1, 2, 3) to categorical (one-hot) format
+train_labels_categorical = to_categorical(train_labels, num_classes=NUM_CLASSES)
+test_labels_categorical = to_categorical(test_labels, num_classes=NUM_CLASSES)
+
+# --- Step 4: Build the CNN Model ---
+print("Building the CNN model...")
+model = Sequential()
+
+# 1st Layer: Embedding
+# Takes the vocabulary size, embedding dimension, and input length
+model.add(Embedding(input_dim=VOCAB_SIZE,
+                    output_dim=EMBEDDING_DIM,
+                    input_length=MAX_LEN))
+
+# 2nd Layer: 1D Convolution
+# Slides 1-dimensional windows over the text
+model.add(Conv1D(filters=128, kernel_size=5, activation='relu'))
+
+# 3rd Layer: Global Max Pooling
+# Takes the most important (highest) feature from each filter
+model.add(GlobalMaxPooling1D())
+
+# 4th Layer: Fully Connected (Dense) Layer
+model.add(Dense(64, activation='relu'))
+model.add(Dropout(0.5)) # To prevent overfitting
+
+# 5th Layer: Output Layer
+# As many neurons as there are classes, and 'softmax' activation
+model.add(Dense(NUM_CLASSES, activation='softmax'))
+
+# Show the model summary
+model.summary()
+
+# --- Step 5: Compile the Model ---
+model.compile(loss='categorical_crossentropy',  # For multi-class classification
+              optimizer='adam',                 # A popular optimizer
+              metrics=['accuracy'])             # Performance metric
+
+# --- Step 6: Train the Model ---
+print("Training the model...")
+EPOCHS = 5
+BATCH_SIZE = 64
+
+history = model.fit(train_padded,
+                    train_labels_categorical,
+                    epochs=EPOCHS,
+                    batch_size=BATCH_SIZE,
+                    validation_split=0.1) # Use 10% of training data for validation
+
+# --- Step 7: Evaluate the Model ---
+print("Evaluating the model on test data...")
+score = model.evaluate(test_padded, test_labels_categorical, batch_size=BATCH_SIZE)
+print(f"Test Loss: {score[0]:.4f}")
+print(f"Test Accuracy: {score[1]:.4f}")
